@@ -1,0 +1,65 @@
+// goal: elections
+
+new stdout(`rho:io:stdout`), stdoutAck(`rho:io:stdoutAck`) in {
+
+  stdout!("deploy of andromeda14t_j") |  
+
+  new communicationCh, electionsSet in {
+
+    electionsSet!(Set()) |
+    
+      
+    contract @"andromeda14t_j"(@yyyymmddhh, ack) = {
+
+      stdout!("ask for commCh") |
+      ack!(*communicationCh) |
+
+      for (@el <- electionsSet)  {
+        
+        if (el.contains(yyyymmddhh)) {
+          stdout!("election: " ++ yyyymmddhh) |
+          electionsSet!(el)
+          
+        } else {
+          
+          stdout!("NEW election: " ++ yyyymmddhh) |
+          electionsSet!(el.add(yyyymmddhh)) | for (@v <- electionsSet) {
+            stdout!(v) | electionsSet!(v)
+          } |
+                 
+          new counterCh in {
+
+            counterCh!(0) |
+            
+            contract @[*communicationCh, yyyymmddhh, "propose"](ack) = {
+              stdout!("->propose") |
+
+              for (@c <- counterCh) {                
+                ack!(c + 1) | counterCh!(c + 1)
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+
+
+
+// TESTING
+new ch, ack, hashAck, stdout(`rho:io:stdout`) in {
+
+  // helper channels
+  @"root"!("andromeda14t_j_1") |   
+  @"yyyymmddhh"!("2018-10-09-03") |
+
+  for (@yyyymmddhh <- @"yyyymmddhh") {
+    @"andromeda14t_j"!(yyyymmddhh, *ch) | for (@andromeda <- ch; @root <- @"root") {
+      @[andromeda, yyyymmddhh, "propose"]!(*ack) | for (@result <- ack) {
+        stdout!(result)
+      }
+    }
+  }
+}

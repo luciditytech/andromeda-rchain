@@ -1,0 +1,194 @@
+// goal: add security to root contract, make it private
+
+new stdout(`rho:io:stdout`), stdoutAck(`rho:io:stdoutAck`) in {
+
+  stdout!("deploy of andromeda12e")
+  |
+
+  // when `counterCh` was here, and we init it `counterCh!(0)` outside andromeda
+  // all roots uses same counter - it was acting like global
+  new
+    // this is channel for verifiers
+    communicationCh,
+    // set of all blind proposals: {0x123}
+    blindProposalsSet,
+    // set of all roots: {0x123}
+    rootsSet,
+    // private channel for creating root contract
+    _createRootCh,
+    // private channel for counting votes
+    _countRootVotesCh,
+    // {"root": 0x123, "max": 234}
+    rootWinnerSet in {
+   
+    blindProposalsSet!(Set()) |
+    rootsSet!(Set()) |
+    rootWinnerSet!({"root": Nil, "max": 0}) |
+
+    contract @"andromeda12e"(ack) = {
+
+      // return channel for communication
+      ack!(*communicationCh) |
+
+      contract @[*communicationCh, "getWinner"](ack) = {
+        stdout!("->getWinner") |
+
+        for (@winner <- rootWinnerSet) {
+          rootWinnerSet!(winner) |
+          ack!(winner)
+        }
+      } |
+
+      contract @[*communicationCh, "isBlindVoteExists"](@val, ack) = {
+        stdout!("->isBlindVoteExists") |
+
+        for (@P <- blindProposalsSet) {
+          blindProposalsSet!(P) |
+          ack!(P.contains(val))
+        }
+      } |
+      
+      contract @[*communicationCh, "propose"](@blindVote, ack) = {
+        stdout!("->propose") |
+
+        new isBlindVoteExistsAck in {
+          @[*communicationCh, "isBlindVoteExists"]!(blindVote, *isBlindVoteExistsAck) |
+
+          for (@exists <- isBlindVoteExistsAck) {
+            if (exists) {
+              stdout!("Blind vote already exists") |
+              ack!(-1)
+            } else {
+              stdout!("New blind vote") |
+
+              for (@proposals <- blindProposalsSet) {
+                blindProposalsSet!(proposals.add(blindVote)) |
+                ack!(0) |
+                stdout!(blindVote) | stdout!(proposals)
+              }
+            }
+          }
+        }
+      }
+      |
+
+      // propose method
+      contract @[*communicationCh, "reveal"](@root, @secret, ack) = {
+        stdout!("->reveal") |
+
+        new blindProposal, hashAck in {
+
+          // send root and secret to channel for hash them
+          blindProposal!(root | secret) | for (@toHash <- blindProposal) {
+            @"keccak256Hash"!(toHash.toByteArray(), *hashAck) |
+
+            // with hash and current blind proposals
+            for (@hash <- hashAck; @proposals <- blindProposalsSet) {
+              blindProposalsSet!(proposals) |
+
+              // if we have this hash in blind proposals, means reveal is valid
+              if (proposals.contains(hash)) {
+                stdout!("reveal successful") |
+
+                for (@roots <- rootsSet) {
+                  // do we have this root? or need to create contract for it?
+                  if (roots.contains(root)) {
+                    _countRootVotesCh!(root, *ack)
+                  } else {
+                    //put set back ot the channel
+                    rootsSet!(roots.add(root))
+                    |
+                    new createdAck in {
+                      _createRootCh!(root, *createdAck) | for (_ <- createdAck) {
+                        _countRootVotesCh!(root, *ack)
+                      }
+                    }
+                  }
+                }
+              } else {
+                stdout!("reveal invalid") |
+                ack!(-1)
+              }
+            }
+          }
+        }
+      } |
+
+      // create contract for new root
+      for (root, ack <- _createRootCh) {
+        new counterCh in {
+          stdout!("creating root") |
+          counterCh!(0) |          
+          
+          // `root` is public name, but `rootWinnerSet` is private, 
+          // so nobody can run this contract, only andromeda can
+          contract @[*rootWinnerSet, *root](ack) = {
+            stdout!("in root contract") |
+
+            for (@c <- counterCh; @maxs <- rootWinnerSet) {
+              counterCh!(c + 1) |
+
+              if ((c + 1) > maxs.get("max")) {
+                stdout!("new winner") |
+                rootWinnerSet!({"root": *root, "max": (c + 1)})
+              } else {
+                rootWinnerSet!(maxs)
+              } |
+
+              // on return channel I send current counter value
+              ack!(c + 1) |
+              stdout!(c + 1)
+            }
+          } |
+
+          ack!(0)
+        }
+      }
+      |
+
+      // update counters for roots
+      for (root, ack <- _countRootVotesCh) {
+        @[*rootWinnerSet, *root]!(*ack)
+      }
+    }
+  }
+}
+|
+
+// propose and reveal
+new ch, ack, blindProposal, hashAck, stdout(`rho:io:stdout`) in {
+
+  // public helper channels
+  @"root"!("andromeda12e_12e3") | @"secret"!(456) |
+
+  @"andromeda12e"!(*ch) | for (@andromeda <- ch; @root <- @"root"; @secret <- @"secret") {
+
+    blindProposal!(root | secret) | for (@toHash <- blindProposal) {
+      stdout!("hashing root: ") |
+
+      //hashing channel expect byte array as input, this is true for all 3 channels:
+      //keccak256Hash, sha256Hash and blake2b256Hash
+      @"keccak256Hash"!(toHash.toByteArray(), *hashAck) | for (@hash <- hashAck) {
+        stdout!("proposing...") |
+
+        @[andromeda, "propose"]!(hash, *ack) | for (@result <- ack) {
+          if (result == 0) {
+            stdout!("propose OK") |
+
+            @[andromeda, "reveal"]!(root, secret, *ack) | for (@v <- ack) {
+              stdout!("reveal  OK") |
+
+              @"getter12e_1"!(v) | stdout!(v) |
+              
+              @[andromeda, "getWinner"]!(*ack) | for (@winner <- ack) {
+                @"getter12e_1"!(winner) | stdout!(winner)
+              }
+            }
+          } else {
+            stdout!("Oops propose failed!") | @"getter12e_1"!("Oops propose failed!")
+          }
+        }
+      }
+    }
+  }
+}

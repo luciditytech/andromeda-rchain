@@ -1,0 +1,22 @@
+{
+  "name": "andromeda-rchain",
+  "version": "0.1.0",
+  "description": "Andromeda implementation for RChain",
+  "main": "index.js",
+  "directories": {
+    "example": "examples"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "node ed25519.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "."
+  },
+  "author": "Dariusz Zacharczuk",
+  "license": "MIT",
+  "devDependencies": {
+    "ed25519": "0.0.4"
+  }
+}

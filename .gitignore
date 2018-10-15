@@ -1,0 +1,7 @@
+node_modules
+rnode/rspace/*
+rnode/casper-block-store/*
+*.log
+.idea/
+*.deb
+examples/*
